@@ -1,0 +1,38 @@
+# docker-compose.local.yml
+# Override local DEV : pas de Traefik, ports exposés en localhost,
+# front compilé avec l’API http://localhost:3000/api
+
+services:
+  postgres:
+    # évite le conflit avec un Postgres local (port hôte 5433)
+    ports:
+      - "5433:5432"
+
+  minio:
+    # console minio locale
+    ports:
+      - "9001:9001"
+
+  api:
+    labels: []         # désactive les routes Traefik
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      - JWT_SECRET=${JWT_SECRET}
+      - MINIO_ENDPOINT=minio
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - MINIO_BUCKET=${MINIO_BUCKET}
+      - PUBLIC_FQDN=localhost
+    ports:
+      - "3000:3000"    # http://localhost:3000
+
+  web:
+    labels: []         # pas de Traefik en local
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: http://localhost:3000/api
+    ports:
+      - "5173:80"      # http://localhost:5173

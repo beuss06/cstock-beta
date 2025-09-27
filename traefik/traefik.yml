@@ -1,0 +1,3 @@
+# Statique (peut rester minimal car on passe surtout par labels Docker)
+api:
+  dashboard: false

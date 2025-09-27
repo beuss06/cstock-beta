@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  LOGISTICIAN
+  SITE_MANAGER
+  STOREKEEPER
+  ACCOUNTING
+  VIEWER
+}
+
+enum MovementType {
+  ENTRY
+  EXIT
+  TRANSFER
+  RETURN
+  LOSS
+}
+
+enum LocationType {
+  DEPOT
+  CHANTIER
+  VEHICLE
+  BOX
+}
+
+enum ToolEventType {
+  ASSIGN
+  RETURN
+  MAINTENANCE
+  LOSS
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // côtés retour
+  movementsCreated Movement[] @relation("MovementCreatedBy")
+  toolsAssigned    Tool[]     @relation("ToolAssignedTo")
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  siret     String?
+  contact   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items      Item[]
+  itemPrices ItemPrice[]
+}
+
+model Item {
+  id         String      @id @default(cuid())
+  refCode    String      @unique
+  label      String
+  ean        String?
+  family     String?
+  unit       String?
+  photoUrl   String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  supplier   Supplier?   @relation(fields: [supplierId], references: [id])
+  supplierId String?
+  prices     ItemPrice[]
+  stocks     Stock[]
+  movements  Movement[]
+}
+
+model ItemPrice {
+  id         String     @id @default(cuid())
+  item       Item       @relation(fields: [itemId], references: [id])
+  itemId     String
+  supplier   Supplier   @relation(fields: [supplierId], references: [id])
+  supplierId String
+  price      Decimal
+  currency   String     @default("EUR")
+  validFrom  DateTime   @default(now())
+}
+
+model Location {
+  id        String       @id @default(cuid())
+  name      String       @unique  // ← permet upsert(where: { name })
+  type      LocationType
+  archived  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  stocks        Stock[]
+  movementsFrom Movement[]  @relation("FromLocation")
+  movementsTo   Movement[]  @relation("ToLocation")
+  toolsOwned    Tool[]      @relation("ToolOwnerLoc")
+  toolEvents    ToolEvent[]
+}
+
+model Stock {
+  item         Item     @relation(fields: [itemId], references: [id])
+  itemId       String
+  location     Location @relation(fields: [locationId], references: [id])
+  locationId   String
+  qty          Int      @default(0)
+  minThreshold Int      @default(0)
+
+  @@id([itemId, locationId])
+}
+
+model Movement {
+  id            String        @id @default(cuid())
+  type          MovementType
+  item          Item          @relation(fields: [itemId], references: [id])
+  itemId        String
+  qty           Int
+  fromLocation  Location?     @relation("FromLocation", fields: [fromLocationId], references: [id])
+  fromLocationId String?
+  toLocation    Location?     @relation("ToLocation", fields: [toLocationId], references: [id])
+  toLocationId  String?
+  personName    String?
+  siteRoom      String?
+  blNo          String?
+  poNo          String?
+  reason        String?
+
+  createdBy     User          @relation("MovementCreatedBy", fields: [createdById], references: [id])
+  createdById   String
+  createdAt     DateTime      @default(now())
+}
+
+model Tool {
+  id           String     @id @default(cuid())
+  label        String
+  serialNo     String?    @unique
+  state        String?
+  warrantyEnd  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  assignedTo   User?      @relation("ToolAssignedTo", fields: [assignedToId], references: [id])
+  assignedToId String?
+  ownerLoc     Location?  @relation("ToolOwnerLoc", fields: [ownerLocId], references: [id])
+  ownerLocId   String?
+  events       ToolEvent[]
+}
+
+model ToolEvent {
+  id         String    @id @default(cuid())
+  tool       Tool      @relation(fields: [toolId], references: [id])
+  toolId     String
+  type       ToolEventType
+  location   Location? @relation(fields: [locationId], references: [id])
+  locationId String?
+  personName String?
+  ts         DateTime  @default(now())
+  notes      String?
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  url         String
+  mime        String
+  createdAt   DateTime @default(now())
+}

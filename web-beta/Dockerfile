@@ -1,0 +1,17 @@
+# ---- BUILD (Node) ----
+FROM node:20 AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm i; fi
+
+COPY . .
+ARG VITE_API_BASE
+ENV VITE_API_BASE=${VITE_API_BASE}
+RUN npm run build
+
+# ---- RUNTIME (Nginx) ----
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
