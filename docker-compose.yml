@@ -27,6 +27,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Europe/Paris
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -48,6 +49,7 @@ services:
       - SCHEDULE=@daily
       - BACKUP_DIR=/backups
       - BACKUP_KEEP_DAYS=7
+      - TZ=Europe/Paris
     volumes:
       - ./backups:/backups
     restart: unless-stopped
@@ -58,10 +60,11 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - TZ=Europe/Paris
     volumes:
       - minio:/data
     ports:
-      - "9001:9001" # console locale (non exposée via traefik)
+      - "9001:9001" # console locale (non exposée via Traefik)
     restart: unless-stopped
 
   api:
@@ -76,6 +79,7 @@ services:
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
       - MINIO_BUCKET=${MINIO_BUCKET}
       - PUBLIC_FQDN=${PUBLIC_FQDN}
+      - TZ=Europe/Paris
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,13 +87,13 @@ services:
         condition: service_started
     labels:
       - "traefik.enable=true"
-      # Route HTTPS => /api vers le service API
+      # Route HTTPS -> /api vers l'API Nest
       - "traefik.http.routers.api.rule=Host(`${PUBLIC_FQDN}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=le"
-      # Force le port interne si l'image n'expose pas
+      # Port interne de l'API (Nest écoute sur 3000)
       - "traefik.http.services.api.loadbalancer.server.port=3000"
-      # Strip du préfixe /api avant d'atteindre Nest
+      # Retire /api avant d'atteindre Nest
       - "traefik.http.middlewares.api-strip.stripprefix.prefixes=/api"
       - "traefik.http.routers.api.middlewares=api-strip"
     restart: unless-stopped
@@ -98,14 +102,14 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
-      # ⚠️ Vite lit VITE_API_BASE AU BUILD → on la passe en build-arg
+      # ⚠️ Vite lit VITE_API_BASE AU BUILD → on la passe ici
       args:
-        VITE_API_BASE: ${VITE_API_BASE:-https://${PUBLIC_FQDN}/api}
+        VITE_API_BASE: https://${PUBLIC_FQDN}/api
     depends_on:
       - api
     labels:
       - "traefik.enable=true"
-      # Route HTTPS => racine vers le site statique
+      # Route HTTPS -> racine vers le site (nginx)
       - "traefik.http.routers.web.rule=Host(`${PUBLIC_FQDN}`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=le"
