@@ -2,36 +2,40 @@ services:
   traefik:
     image: traefik:v3.0
     command:
-      - "--providers.docker=true"
-      - "--providers.file.directory=/etc/traefik/dynamic"
-      - "--providers.file.watch=true"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.le.acme.httpchallenge=true"
-      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
-      - "--certificatesresolvers.le.acme.email=${TRAEFIK_ACME_EMAIL}"
-      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.email=\
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --log.level=DEBUG
+      - --accesslog=true
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - "./traefik/traefik.yml:/etc/traefik/traefik.yml:ro"
       - "./traefik/dynamic:/etc/traefik/dynamic:ro"
-      - "acme:/letsencrypt"
+      - "./traefik:/letsencrypt"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: \
+      POSTGRES_PASSWORD: \
+      POSTGRES_DB: \
       TZ: Europe/Paris
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U \ -d \"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -43,9 +47,9 @@ services:
       - postgres
     environment:
       - POSTGRES_HOST=postgres
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=\
+      - POSTGRES_USER=\
+      - POSTGRES_PASSWORD=\
       - SCHEDULE=@daily
       - BACKUP_DIR=/backups
       - BACKUP_KEEP_DAYS=7
@@ -58,13 +62,13 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_ROOT_USER=\
+      - MINIO_ROOT_PASSWORD=\
       - TZ=Europe/Paris
     volumes:
       - minio:/data
     ports:
-      - "9001:9001" # console locale (non exposée via Traefik)
+      - "127.0.0.1:9001:9001" # limite l'accès à localhost (change si besoin)
     restart: unless-stopped
 
   api:
@@ -72,13 +76,13 @@ services:
       context: ./backend
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
-      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=postgresql://\:\@postgres:5432/\?schema=public
+      - JWT_SECRET=\
       - MINIO_ENDPOINT=minio
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
-      - MINIO_BUCKET=${MINIO_BUCKET}
-      - PUBLIC_FQDN=${PUBLIC_FQDN}
+      - MINIO_ACCESS_KEY=\
+      - MINIO_SECRET_KEY=\
+      - MINIO_BUCKET=\
+      - PUBLIC_FQDN=\
       - TZ=Europe/Paris
     depends_on:
       postgres:
@@ -86,38 +90,45 @@ services:
       minio:
         condition: service_started
     labels:
-      - "traefik.enable=true"
-      # Route HTTPS -> /api vers l'API Nest
-      - "traefik.http.routers.api.rule=Host(`${PUBLIC_FQDN}`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.api.entrypoints=websecure"
-      - "traefik.http.routers.api.tls.certresolver=le"
-      # Port interne de l'API (Nest écoute sur 3000)
-      - "traefik.http.services.api.loadbalancer.server.port=3000"
-      # Retire /api avant d'atteindre Nest
-      - "traefik.http.middlewares.api-strip.stripprefix.prefixes=/api"
-      - "traefik.http.routers.api.middlewares=api-strip"
+      - traefik.enable=true
+      # HTTPS -> /api
+      - traefik.http.routers.api.rule=Host(\) && PathPrefix(/api)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.services.api.loadbalancer.server.port=3000
+      # Retirer /api avant Nest
+      - traefik.http.middlewares.api-strip.stripprefix.prefixes=/api
+      - traefik.http.routers.api.middlewares=api-strip
+      # HTTP -> HTTPS
+      - traefik.http.routers.api-redirect.rule=Host(\) && PathPrefix(/api)
+      - traefik.http.routers.api-redirect.entrypoints=web
+      - traefik.http.routers.api-redirect.middlewares=api-redirect
+      - traefik.http.middlewares.api-redirect.redirectscheme.scheme=https
     restart: unless-stopped
 
   web:
     build:
       context: ./web
       dockerfile: Dockerfile
-      # ⚠️ Vite lit VITE_API_BASE AU BUILD → on la passe ici
       args:
-        VITE_API_BASE: https://${PUBLIC_FQDN}/api
+        VITE_API_BASE: https://\/api
     depends_on:
       - api
     labels:
-      - "traefik.enable=true"
-      # Route HTTPS -> racine vers le site (nginx)
-      - "traefik.http.routers.web.rule=Host(`${PUBLIC_FQDN}`)"
-      - "traefik.http.routers.web.entrypoints=websecure"
-      - "traefik.http.routers.web.tls.certresolver=le"
-      # Nginx écoute sur 80 dans le conteneur
-      - "traefik.http.services.web.loadbalancer.server.port=80"
+      - traefik.enable=true
+      # HTTPS -> racine
+      - traefik.http.routers.web.rule=Host(\)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.tls=true
+      - traefik.http.routers.web.tls.certresolver=le
+      - traefik.http.services.web.loadbalancer.server.port=80
+      # HTTP -> HTTPS
+      - traefik.http.routers.web-redirect.rule=Host(\)
+      - traefik.http.routers.web-redirect.entrypoints=web
+      - traefik.http.routers.web-redirect.middlewares=web-redirect
+      - traefik.http.middlewares.web-redirect.redirectscheme.scheme=https
     restart: unless-stopped
 
 volumes:
   pgdata:
-  acme:
   minio:
